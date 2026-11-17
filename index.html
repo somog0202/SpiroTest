@@ -257,7 +257,7 @@
         <label>
           ローパス［Hz］
           <input id="cutoffHz" type="number"
-                 min="0.1" max="40" step="0.1" value="5">
+                 min="0.1" max="40" step="0.1" value="8">
         </label>
         <label>
           線の太さ［px］
@@ -334,6 +334,7 @@
     let lastSampleTime = null;
     let filteredValue = null;
     let axisMax = 100;
+    let sweepStartTime = null;
 
     function setStatus(text) {
       $("status").textContent = text;
@@ -368,6 +369,7 @@
       lastSequence = null;
       lastSampleTime = null;
       filteredValue = null;
+      sweepStartTime = null;
 
       $("pressure").textContent = "--";
       $("rate").textContent = "--";
@@ -487,6 +489,10 @@
           filtered: filteredValue,
           sequence
         });
+
+        if (sweepStartTime === null) {
+          sweepStartTime = time;
+        }
 
         arrivals.push(now);
         expandScale(filteredValue);
@@ -657,14 +663,27 @@
       ctx.fillStyle = "#fff";
       ctx.fillRect(0, 0, w, h);
 
-      const visible = samples.filter(
-        s => s.time >= now - windowMs &&
-             s.time <= now
-      );
+      // 心電図のように、左から右へ描画を進める。
+      // 右端に到達すると次の走査を左端から開始する。
+      const sweepElapsed = sweepStartTime === null
+        ? 0
+        : Math.max(0, now - sweepStartTime);
+      const currentSweepStart = sweepStartTime === null
+        ? null
+        : sweepStartTime +
+          Math.floor(sweepElapsed / windowMs) * windowMs;
+
+      const visible = currentSweepStart === null
+        ? []
+        : samples.filter(
+            s => s.time >= currentSweepStart &&
+                 s.time <= now &&
+                 s.time < currentSweepStart + windowMs
+          );
 
       const xOf = (time) =>
         left +
-        ((time - (now - windowMs)) / windowMs) * plotW;
+        ((time - currentSweepStart) / windowMs) * plotW;
 
       const yOf = (value) =>
         top +
@@ -698,12 +717,10 @@
         ctx.lineTo(x, top + plotH);
         ctx.stroke();
 
-        const secondsAgo =
-          (windowMs / 1000) * (1 - i / 5);
+        const elapsedSeconds =
+          (windowMs / 1000) * (i / 5);
 
-        const label = i === 5
-          ? "現在"
-          : `${Number(secondsAgo.toFixed(1))}秒前`;
+        const label = `${Number(elapsedSeconds.toFixed(1))}秒`;
 
         const labelWidth =
           ctx.measureText(label).width;
